@@ -28,11 +28,43 @@ You provide complete and in depth research to the user.
 
 def get_openai_client():
     """Get OpenAI client with API key validation"""
-    api_key = os.getenv('OPENAI_API_KEY')
+    # Try to get API key from environment first
+    env_api_key = os.getenv('OPENAI_API_KEY', '')
+    
+    # Create API key input section
+    st.subheader("🔑 OpenAI API Key Setup")
+    
+    # Use environment key as default, or empty if not available
+    api_key = st.text_input(
+        "Enter your OpenAI API Key:",
+        value=env_api_key,
+        type="password",
+        help="Get your API key from https://platform.openai.com/api-keys",
+        placeholder="sk-..." if not env_api_key else ""
+    )
+    
     if not api_key:
-        st.error('🔑 OPENAI_API_KEY not set. Please set it in your environment or .env file.')
+        st.warning("⚠️ Please enter your OpenAI API key to continue.")
+        st.info("💡 **How to get your API key:**\n"
+                "1. Go to https://platform.openai.com/api-keys\n"
+                "2. Sign in to your OpenAI account\n"
+                "3. Click 'Create new secret key'\n"
+                "4. Copy and paste it above")
         st.stop()
-    return OpenAI(api_key=api_key)
+    
+    # Validate API key format
+    if not api_key.startswith('sk-'):
+        st.error("❌ Invalid API key format. OpenAI API keys start with 'sk-'")
+        st.stop()
+    
+    try:
+        client = OpenAI(api_key=api_key)
+        # Store the API key in session state for persistence
+        st.session_state['api_key'] = api_key
+        return client
+    except Exception as e:
+        st.error(f"❌ Error connecting to OpenAI: {str(e)}")
+        st.stop()
 
 # --- Step 1: Get topic ---
 def get_topic():
@@ -151,8 +183,22 @@ def main():
     st.title("🔬 Deep Research Clone")
     st.write("AI-powered research assistant with web search following the exact original flow.")
     
-    # Get OpenAI client
+    # Get OpenAI client (this will show the API key input if needed)
     client = get_openai_client()
+    
+    # Show success message once API key is set
+    if 'api_key' in st.session_state:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.success("✅ API key configured successfully!")
+        with col2:
+            if st.button("🔄 Change API Key"):
+                del st.session_state['api_key']
+                st.rerun()
+        
+        # Add separator
+        st.markdown("---")
+        st.subheader("🎯 Start Your Research")
     
     # Step 1: Topic
     topic = get_topic()

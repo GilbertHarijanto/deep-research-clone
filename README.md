@@ -5,11 +5,13 @@ A powerful AI-powered research assistant built with Streamlit and OpenAI's API. 
 ## Features
 
 - **Interactive Research Flow**: Guides users through a structured research process
+- **Flexible API Key Setup**: Enter API key directly in the app or use environment variables
 - **Clarifying Questions**: AI generates relevant questions to understand research intent
 - **Comprehensive Web Search**: Performs multiple targeted web searches
 - **Iterative Research**: Continues searching until sufficient information is gathered
 - **Detailed Reports**: Generates comprehensive research reports with citations
 - **Modern UI**: Clean and intuitive Streamlit interface
+- **Session Persistence**: API key and research progress saved during your session
 
 ## Setup Instructions
 
@@ -31,19 +33,26 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. Environment Variables
+### 3. API Key Setup
 
+You have two options for setting up your OpenAI API key:
+
+**Option 1: Environment Variable (Recommended for local development)**
 1. Copy `env_example.txt` to `.env`:
    ```bash
    cp env_example.txt .env
    ```
-
 2. Edit `.env` and add your OpenAI API key:
    ```
    OPENAI_API_KEY=your_actual_api_key_here
    ```
 
-   Get your API key from: https://platform.openai.com/api-keys
+**Option 2: Direct Input (Great for deployed apps)**
+- The app will automatically show an API key input box
+- Enter your key directly in the web interface
+- Your key is stored securely in the session
+
+Get your API key from: https://platform.openai.com/api-keys
 
 ### 4. Run the Application
 
