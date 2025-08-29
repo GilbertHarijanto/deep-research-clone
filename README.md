@@ -2,6 +2,8 @@
 
 A powerful AI-powered research assistant built with Streamlit and OpenAI's API. This application conducts comprehensive research on any topic by asking clarifying questions, performing web searches, and generating detailed reports.
 
+🚀 **[Try the live demo here!](https://deep-research-gilbert.streamlit.app/)**
+
 ## Features
 
 - **Interactive Research Flow**: Guides users through a structured research process
