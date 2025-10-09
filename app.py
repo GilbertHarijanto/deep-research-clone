@@ -22,7 +22,13 @@ from typing import Dict, List, Any, Tuple, Optional
 from urllib.parse import urlparse
 
 import streamlit as st
+st.set_page_config(page_title="Deep Research Clone", layout="wide")
+
 from openai import OpenAI
+from dotenv import load_dotenv
+
+from langfuse import Langfuse
+from opentelemetry import trace
 from dotenv import load_dotenv
 
 # -------------------------------------------------------------------
@@ -36,6 +42,28 @@ load_dotenv()
 MODEL = "gpt-4o"
 MODEL_MINI = "gpt-4o-mini"
 TOOLS = [{"type": "web_search"}]
+
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "https://us.cloud.langfuse.com")
+
+langfuse = Langfuse(
+    public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+    secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+    host=os.getenv("LANGFUSE_HOST"),
+)
+
+tracer = trace.get_tracer("deep-research-clone")
+
+with tracer.start_as_current_span("research_session") as span:
+    span.set_attribute("app", "Deep Research Clone")
+    span.set_attribute("model", "gpt-4o")
+
+    result_text = "Example model output text"
+
+    span.set_attribute("output", result_text)
+
+print("Langfuse tracing via OpenTelemetry initialized successfully")
 
 DEVELOPER_MESSAGE = """
 You are an expert Deep Researcher.
@@ -156,16 +184,40 @@ def llm(
 ) -> Any:
     if client is None:
         raise RuntimeError("OpenAI client is not initialized.")
-    kwargs = {
-        "model": model,
-        "input": input_obj,
-        "instructions": instructions,
-    }
-    if tools:
-        kwargs["tools"] = tools
-    if previous_response_id:
-        kwargs["previous_response_id"] = previous_response_id
-    return client.responses.create(**kwargs)
+
+    tracer = trace.get_tracer("deep-research-clone")
+
+    with tracer.start_as_current_span("llm_call") as span:
+        span.set_attribute("model", model)
+        span.set_attribute("tools", str(tools))
+        span.set_attribute("input", str(input_obj))
+
+        kwargs = {
+            "model": model,
+            "input": input_obj,
+            "instructions": instructions,
+        }
+        if tools:
+            kwargs["tools"] = tools
+        if previous_response_id:
+            kwargs["previous_response_id"] = previous_response_id
+
+        try:
+            response = client.responses.create(**kwargs)
+            output_text = ""
+            try:
+                output_text = response.output[0].content[0].text
+            except Exception:
+                pass
+
+            span.set_attribute("output", output_text)
+            span.set_attribute("status", "success")
+            return response
+
+        except Exception as e:
+            span.set_attribute("error", str(e))
+            span.set_attribute("status", "error")
+            raise
 
 # -------------------------------------------------------------------
 # Steps
@@ -649,7 +701,6 @@ def ui_research_chat():
 # Main
 # -------------------------------------------------------------------
 def main():
-    st.set_page_config(page_title="Deep Research Clone", layout="wide")
     # st.markdown(MONOCHROME_CSS, unsafe_allow_html=True)
 
     st.title("Deep Research Clone")
