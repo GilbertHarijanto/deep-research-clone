@@ -174,6 +174,10 @@ def url_to_title_guess(url: str) -> str:
 # -------------------------------------------------------------------
 # Core LLM Calls
 # -------------------------------------------------------------------
+from opentelemetry import trace
+import time
+import json
+
 def llm(
     client: OpenAI,
     model: str,
@@ -187,10 +191,13 @@ def llm(
 
     tracer = trace.get_tracer("deep-research-clone")
 
+    start_time = time.time()
+
     with tracer.start_as_current_span("llm_call") as span:
         span.set_attribute("model", model)
         span.set_attribute("tools", str(tools))
-        span.set_attribute("input", str(input_obj))
+        span.set_attribute("input", json.dumps(input_obj, ensure_ascii=False))
+        span.set_attribute("instructions", instructions.strip())
 
         kwargs = {
             "model": model,
@@ -204,19 +211,27 @@ def llm(
 
         try:
             response = client.responses.create(**kwargs)
+
             output_text = ""
             try:
                 output_text = response.output[0].content[0].text
-            except Exception:
-                pass
+            except Exception as e:
+                span.set_attribute("output_parse_error", str(e))
 
-            span.set_attribute("output", output_text)
+            truncated_output = (output_text[:800] + "...") if len(output_text) > 800 else output_text
+
+            span.set_attribute("output", truncated_output)
             span.set_attribute("status", "success")
+            span.set_attribute("response_id", getattr(response, "id", "unknown"))
+            span.set_attribute("duration_sec", round(time.time() - start_time, 3))
+
             return response
 
         except Exception as e:
+            duration = round(time.time() - start_time, 3)
             span.set_attribute("error", str(e))
             span.set_attribute("status", "error")
+            span.set_attribute("duration_sec", duration)
             raise
 
 # -------------------------------------------------------------------
