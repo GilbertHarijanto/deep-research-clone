@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "dev:all": "concurrently \"npm run dev\" \"cd ../backend && uvicorn main:app --reload --port 8000\""
   },
   "dependencies": {
     "autoprefixer": "^10.4.21",
@@ -22,6 +23,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
     "tailwindcss": "^4.1.13",
     "typescript": "^5"
   }
