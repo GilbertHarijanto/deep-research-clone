@@ -3,3 +3,10 @@ streamlit==1.29.0
 python-dotenv==1.0.0
 fastapi
 uvicorn
+langfuse==3.6.2
+protobuf==5.27.2
+
+# Optional: commonly used utils
+pandas
+numpy
+requests
