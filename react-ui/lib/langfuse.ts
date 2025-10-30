@@ -1,6 +1,3 @@
-// Langfuse tracking utility for LLM calls
-// Similar to the Python llm.py implementation using OpenTelemetry-style tracing
-
 import { Langfuse } from "langfuse"
 
 interface LLMCallOptions {
@@ -9,6 +6,7 @@ interface LLMCallOptions {
   instructions: string
   tools?: any[]
   previousResponseId?: string
+  metadata?: Record<string, any> 
 }
 
 interface LLMCallResult {
@@ -54,13 +52,17 @@ export async function trackedLLMCall<T>(
   const client = getLangfuseClient()
   const startTime = Date.now()
 
+  const traceName = options.metadata?.action || options.metadata?.step || "llm_call"
+  
   // Create a trace for this LLM call
   const trace = client?.trace({
-    name: "llm_call",
+    name: traceName,
     metadata: {
       model: options.model,
       tools: options.tools ? JSON.stringify(options.tools) : undefined,
       instructions: options.instructions.trim(),
+      ...options.metadata, 
+      timestamp: new Date().toISOString(),
     },
     input: typeof options.input === "string" ? options.input : JSON.stringify(options.input),
   })
@@ -80,6 +82,7 @@ export async function trackedLLMCall<T>(
         status: "success",
         response_id: result.responseId || "unknown",
         duration_sec: Math.round(duration * 1000) / 1000,
+        ...options.metadata,
       },
     })
 
@@ -94,10 +97,11 @@ export async function trackedLLMCall<T>(
     trace?.update({
       metadata: {
         status: "error",
+        level: "ERROR",
         error: error instanceof Error ? error.message : String(error),
         duration_sec: Math.round(duration * 1000) / 1000,
+        ...options.metadata, 
       },
-      level: "ERROR",
     })
 
     // Flush to ensure error is sent
@@ -113,11 +117,11 @@ export async function trackedLLMCall<T>(
  */
 export function createGeneration(traceName: string, options: LLMCallOptions) {
   const client = getLangfuseClient()
-
   if (!client) return null
 
   const trace = client.trace({
     name: traceName,
+    metadata: options.metadata,
   })
 
   const generation = trace.generation({
@@ -127,6 +131,7 @@ export function createGeneration(traceName: string, options: LLMCallOptions) {
     metadata: {
       instructions: options.instructions,
       tools: options.tools,
+      ...options.metadata, 
     },
   })
 
