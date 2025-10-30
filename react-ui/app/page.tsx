@@ -5,7 +5,6 @@ import { Header } from "@/components/iris/header"
 import { TopicInput } from "@/components/iris/topic-input"
 import { ClarifyingQuestions } from "@/components/iris/clarifying-questions"
 import { InitialQueries } from "@/components/iris/initial-queries"
-import { RunResearch } from "@/components/iris/run-research"
 import { ReportSection } from "@/components/iris/report-section"
 import { ResearchChat } from "@/components/iris/research-chat"
 import { ProgressSidebar } from "@/components/iris/progress-sidebar"
@@ -18,10 +17,14 @@ interface QA {
 }
 
 export default function HomePage() {
-  const [currentStep, setCurrentStep] = useState<"topic" | "clarify" | "queries" | "run" | "report" | "chat">("topic")
+  const [currentStep, setCurrentStep] = useState<"topic" | "clarify" | "queries" | "report" | "chat">("topic")
   const [topic, setTopic] = useState("")
   const [clarifyingAnswers, setClarifyingAnswers] = useState<QA[]>([])
   const [queries, setQueries] = useState<Array<{ id: string; query: string; priority: number }>>([])
+  
+  // Store report data for chat
+  const [reportMarkdown, setReportMarkdown] = useState("")
+  const [reportStructured, setReportStructured] = useState<any>(null)
 
   const handleTopicSubmit = (value: string) => {
     setTopic(value)
@@ -35,14 +38,12 @@ export default function HomePage() {
 
   const handleQueriesComplete = (finalQueries: Array<{ id: string; query: string; priority: number }>) => {
     setQueries(finalQueries)
-    setCurrentStep("run")
-  }
-
-  const handleResearchComplete = () => {
     setCurrentStep("report")
   }
 
-  const handleReportComplete = () => {
+  const handleReportComplete = (markdown: string, structured: any) => {
+    setReportMarkdown(markdown)
+    setReportStructured(structured)
     setCurrentStep("chat")
   }
 
@@ -62,28 +63,18 @@ export default function HomePage() {
                 topic={topic}
                 onComplete={handleClarifyingComplete}
                 isActive={currentStep === "clarify"}
-                isComplete={["queries", "run", "report", "chat"].includes(currentStep)}
+                isComplete={["queries", "report", "chat"].includes(currentStep)}
               />
             )}
 
             {/* Initial Queries */}
-            {["queries", "run", "report", "chat"].includes(currentStep) && (
+            {["queries", "report", "chat"].includes(currentStep) && (
               <InitialQueries
                 onComplete={handleQueriesComplete}
                 isActive={currentStep === "queries"}
-                isComplete={["run", "report", "chat"].includes(currentStep)}
+                isComplete={["report", "chat"].includes(currentStep)}
                 clarifyingData={clarifyingAnswers}
                 topic={topic}
-              />
-            )}
-            
-            {/* Run Research */}
-            {["run", "report", "chat"].includes(currentStep) && (
-              <RunResearch
-                queries={queries}
-                onComplete={handleResearchComplete}
-                isActive={currentStep === "run"}
-                isComplete={["report", "chat"].includes(currentStep)}
               />
             )}
 
@@ -93,8 +84,8 @@ export default function HomePage() {
                 onComplete={handleReportComplete}
                 isActive={currentStep === "report"}
                 isComplete={currentStep === "chat"}
-                queries={queries}  
-                topic={topic}    
+                queries={queries}
+                topic={topic}
               />
             )}
           </div>
@@ -104,8 +95,15 @@ export default function HomePage() {
         <ProgressSidebar currentStep={currentStep} />
       </div>
 
-      {/* Research Chat - Always visible after topic */}
-      {currentStep !== "topic" && <ResearchChat />}
+      {/* Research Chat - Only visible in chat step */}
+      {currentStep === "chat" && (
+        <ResearchChat
+          topic={topic}
+          markdown={reportMarkdown}
+          structured={reportStructured}
+          isActive={currentStep === "chat"}
+        />
+      )}
     </div>
   )
 }
