@@ -1,12 +1,13 @@
+"use client"
+
 interface ProgressSidebarProps {
-  currentStep: "topic" | "clarify" | "queries" | "run" | "report" | "chat"
+  currentStep: "topic" | "clarify" | "queries" | "report" | "chat"
 }
 
 const STEPS = [
   { id: "topic", label: "Topic" },
   { id: "clarify", label: "Clarify" },
   { id: "queries", label: "Queries" },
-  { id: "run", label: "Run" },
   { id: "report", label: "Report" },
   { id: "chat", label: "Chat" },
 ] as const

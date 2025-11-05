@@ -18,7 +18,7 @@ interface ClarifyingQuestionsProps {
   isComplete: boolean
 }
 
-const MAX_QUESTIONS = 5  // Maximum number of clarifying questions
+const MAX_QUESTIONS = 5 // Maximum number of clarifying questions
 
 export function ClarifyingQuestions({
   topic,
@@ -61,9 +61,9 @@ export function ClarifyingQuestions({
             list.length > 0
               ? list.slice(0, MAX_QUESTIONS)
               : [
-                  `What specific aspect of "${topic}" interests you most?`,
-                  "What is your primary goal for this research?",
-                  "Are there any constraints (time, data, tools) we should consider?",
+                  "What specific aspect of this topic are you most interested in exploring?",
+                  "What would you like to learn or achieve from this research?",
+                  "Are there any specific constraints or context I should know about?",
                 ].slice(0, MAX_QUESTIONS)
           )
         }

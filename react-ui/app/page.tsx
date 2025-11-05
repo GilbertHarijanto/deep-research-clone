@@ -1,42 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import dynamic from "next/dynamic";
-
+import { useRouter } from "next/navigation";
 import { Header } from "@/components/iris/header";
 import { TopicInput } from "@/components/iris/topic-input";
 import { ClarifyingQuestions } from "@/components/iris/clarifying-questions";
 import { InitialQueries } from "@/components/iris/initial-queries";
-import { RunResearch } from "@/components/iris/run-research";
 import { ReportSection } from "@/components/iris/report-section";
 import { ResearchChat } from "@/components/iris/research-chat";
 import { ProgressSidebar } from "@/components/iris/progress-sidebar";
+import ResearchCanvas from "@/components/iris/research-canvas";
 
-// Client-only (ReactFlow)
-const ResearchCanvas = dynamic(() => import("@/components/iris/research-canvas"), {
-  ssr: false,
-});
-
+// ---- Types ----
 interface QA {
   question: string;
   answer: string;
   weight?: number;
 }
+type QueryItem = { id: string; query: string; priority: number };
 
 export default function HomePage() {
-  const [currentStep, setCurrentStep] = useState<
-    "topic" | "clarify" | "queries" | "run" | "report" | "chat"
-  >("topic");
+  const [currentStep, setCurrentStep] =
+    useState<"topic" | "clarify" | "queries" | "report" | "chat">("topic");
 
-  const [topic, setTopic] = useState("");
+  // Single source of truth (no duplicates)
+  const [topic, setTopic] = useState<string>("");
   const [clarifyingAnswers, setClarifyingAnswers] = useState<QA[]>([]);
-  const [queries, setQueries] = useState<Array<{ id: string; query: string; priority: number }>>([]);
+  const [queries, setQueries] = useState<QueryItem[]>([]);
+  const [findings, setFindings] = useState<string[]>([]); // keep as strings in page; map for canvas
 
-  // Findings collected during the "Run" step (optional if your RunResearch returns them)
-  const [findings, setFindings] = useState<string[]>([]);
-
-  // NEW: store the final synthesized report markdown; Canvas appears only when this is set
   const [reportMarkdown, setReportMarkdown] = useState<string>("");
+  const [reportStructured, setReportStructured] = useState<any>(null);
 
   // --- Step handlers ---
   const handleTopicSubmit = (value: string) => {
@@ -49,56 +43,48 @@ export default function HomePage() {
     setCurrentStep("queries");
   };
 
-  const handleQueriesComplete = (
-    finalQueries: Array<{ id: string; query: string; priority: number }>
-  ) => {
+  const handleQueriesComplete = (finalQueries: QueryItem[]) => {
     setQueries(finalQueries);
-    setCurrentStep("run");
-  };
-
-  // If your RunResearch returns findings, accept them here (optional)
-  const handleResearchComplete = (results?: { findings?: string[] }) => {
-    if (results?.findings) setFindings(results.findings);
     setCurrentStep("report");
   };
 
-  // When the ReportSection finishes (e.g., user hits Continue)
-  const handleReportComplete = () => {
-    setCurrentStep("chat");
+
+  const router = useRouter();
+
+  const handleReportComplete = async (markdown: string, structured: any) => {
+    setReportMarkdown(markdown);
+    setReportStructured(structured);
+
+    // Build payload for Space
+    const payload = {
+      topic,
+      ideation: clarifyingAnswers.map((qa, i) => ({ id: String(i + 1), title: qa.answer?.trim() || qa.question })),
+      queries,
+      findings: findings.map((txt, i) => ({ id: String(i + 1), text: txt })),
+      reportMarkdown: markdown,
+      references: structured?.references ?? [], // if present
+    };
+
+    const res = await fetch("/api/spaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const { id } = await res.json();
+
+    router.push(`/spaces/${id}`);
   };
 
-  // If your ReportSection can expose the generated markdown,
-  // call this from inside that component after synthesis succeeds.
-  const handleReportReady = (markdown: string) => {
-    setReportMarkdown(markdown || "");
-  };
-
-  // Canvas props mapping
+  // ----- Mappings to satisfy ResearchCanvas prop shapes -----
   const ideation = clarifyingAnswers.map((qa, i) => ({
     id: String(i + 1),
-    title: qa.answer?.trim() ? qa.answer : qa.question,
+    title: qa.answer?.trim() || qa.question,
   }));
 
-  const findingObjects = (findings || []).map((text, i) => ({
+  const findingObjects = findings.map((txt, i) => ({
     id: String(i + 1),
-    text,
-    refs: [] as Array<{ title: string; url: string }>,
+    text: txt,
   }));
-
-  // Optional: allow asking from inside the canvas; here we create a new query via your API
-  async function onAskFromCanvas({
-    scopeNodeId,
-    scopeType,
-    question,
-  }: {
-    scopeNodeId: string;
-    scopeType: "topic" | "idea" | "query" | "evidence" | "report";
-    question: string;
-  }) {
-    // Simple behavior: turn the asked question into a new "query" node
-    // You can route this to /api/research for smarter branching if you like.
-    return { type: "query" as const, query: question, priority: 3 };
-  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -108,7 +94,11 @@ export default function HomePage() {
         <main className="flex-1 max-w-4xl mx-auto px-6 py-8 pb-[240px]">
           <div className="space-y-16">
             {/* Topic Input */}
-            <TopicInput onSubmit={handleTopicSubmit} isComplete={currentStep !== "topic"} value={topic} />
+            <TopicInput
+              onSubmit={handleTopicSubmit}
+              isComplete={currentStep !== "topic"}
+              value={topic}
+            />
 
             {/* Clarifying Questions */}
             {currentStep !== "topic" && (
@@ -116,28 +106,18 @@ export default function HomePage() {
                 topic={topic}
                 onComplete={handleClarifyingComplete}
                 isActive={currentStep === "clarify"}
-                isComplete={["queries", "run", "report", "chat"].includes(currentStep)}
+                isComplete={["queries", "report", "chat"].includes(currentStep)}
               />
             )}
 
             {/* Initial Queries */}
-            {["queries", "run", "report", "chat"].includes(currentStep) && (
+            {["queries", "report", "chat"].includes(currentStep) && (
               <InitialQueries
                 onComplete={handleQueriesComplete}
                 isActive={currentStep === "queries"}
-                isComplete={["run", "report", "chat"].includes(currentStep)}
+                isComplete={["report", "chat"].includes(currentStep)}
                 clarifyingData={clarifyingAnswers}
                 topic={topic}
-              />
-            )}
-
-            {/* Run Research */}
-            {["run", "report", "chat"].includes(currentStep) && (
-              <RunResearch
-                queries={queries}
-                onComplete={handleResearchComplete}
-                isActive={currentStep === "run"}
-                isComplete={["report", "chat"].includes(currentStep)}
               />
             )}
 
@@ -145,17 +125,16 @@ export default function HomePage() {
             {["report", "chat"].includes(currentStep) && (
               <ReportSection
                 onComplete={handleReportComplete}
-                // OPTIONAL: if your ReportSection supports this, call it when the markdown is ready
-                // e.g., props.onReportReady?.(markdownString)
-                // onReportReady={handleReportReady as any}
                 isActive={currentStep === "report"}
                 isComplete={currentStep === "chat"}
                 queries={queries}
                 topic={topic}
+                // If your ReportSection can also supply findings, set them here:
+                // onFindingsReady={(arr: string[]) => setFindings(arr)}
               />
             )}
 
-            {/* ---- Canvas appears ONLY once reportMarkdown exists ---- */}
+            {/* Interactive Research Canvas — only after report is generated */}
             {reportMarkdown && (
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -171,7 +150,10 @@ export default function HomePage() {
                   queries={queries}
                   findings={findingObjects}
                   reportMarkdown={reportMarkdown}
-                  onAskFromCanvas={onAskFromCanvas}
+                  onAskFromCanvas={async ({ question }) => {
+                    // TODO: Wire this to your backend/LLM. For now, create a follow-up "query".
+                    return { type: "query", query: `Follow-up: ${question}`, priority: 3 };
+                  }}
                 />
               </section>
             )}
@@ -182,8 +164,15 @@ export default function HomePage() {
         <ProgressSidebar currentStep={currentStep} />
       </div>
 
-      {/* Research Chat - Always visible after topic */}
-      {currentStep !== "topic" && <ResearchChat />}
+      {/* Research Chat - Only visible in chat step */}
+      {currentStep === "chat" && (
+        <ResearchChat
+          topic={topic}
+          markdown={reportMarkdown}
+          structured={reportStructured}
+          isActive
+        />
+      )}
     </div>
   );
 }
