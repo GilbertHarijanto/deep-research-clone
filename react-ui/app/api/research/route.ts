@@ -46,6 +46,115 @@ async function logEvent(
   }
 }
 
+// ✅ NEW: Helper function to parse arXiv XML response
+function parseArxivXML(xmlText: string): any[] {
+  const entries: any[] = []
+  
+  // Simple regex-based XML parsing (for production, use a proper XML parser)
+  const entryRegex = /<entry>([\s\S]*?)<\/entry>/g
+  const matches = xmlText.matchAll(entryRegex)
+  
+  for (const match of matches) {
+    const entryXML = match[1]
+    
+    // Extract fields
+    const title = entryXML.match(/<title>([\s\S]*?)<\/title>/)?.[1]?.trim().replace(/\s+/g, ' ') || ''
+    const summary = entryXML.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim().replace(/\s+/g, ' ') || ''
+    const published = entryXML.match(/<published>([\s\S]*?)<\/published>/)?.[1]?.trim() || ''
+    const updated = entryXML.match(/<updated>([\s\S]*?)<\/updated>/)?.[1]?.trim() || ''
+    const id = entryXML.match(/<id>([\s\S]*?)<\/id>/)?.[1]?.trim() || ''
+    
+    // Extract authors
+    const authorRegex = /<author>[\s\S]*?<name>([\s\S]*?)<\/name>[\s\S]*?<\/author>/g
+    const authors: string[] = []
+    const authorMatches = entryXML.matchAll(authorRegex)
+    for (const authorMatch of authorMatches) {
+      authors.push(authorMatch[1].trim())
+    }
+    
+    // Extract PDF link
+    const pdfLink = entryXML.match(/<link.*?title="pdf".*?href="([\s\S]*?)"/) || 
+                    entryXML.match(/<link.*?href="([\s\S]*?)".*?title="pdf"/)
+    const pdfUrl = pdfLink?.[1]?.trim() || id.replace('/abs/', '/pdf/')
+    
+    entries.push({
+      title,
+      summary,
+      authors,
+      published,
+      updated,
+      id,
+      pdfUrl,
+    })
+  }
+  
+  return entries
+}
+
+// ✅ NEW: Helper function to search arXiv
+async function performArxivSearch(
+  query: string,
+  maxResults: number = 10,
+  traceId?: string
+) {
+  const startTime = Date.now()
+  
+  try {
+    await logEvent('arxiv_search_start', {
+      query,
+      maxResults,
+    }, traceId)
+    
+    // arXiv API endpoint
+    const encodedQuery = encodeURIComponent(query)
+    const url = `http://export.arxiv.org/api/query?search_query=all:${encodedQuery}&start=0&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'IRIS-Research-Agent/1.0',
+      },
+    })
+
+    if (!response.ok) {
+      console.error(`[arXiv] Search failed: ${response.status}`)
+      
+      await logEvent('arxiv_search_failed', {
+        query,
+        statusCode: response.status,
+        duration: Date.now() - startTime,
+      }, traceId)
+      
+      return []
+    }
+
+    const xmlText = await response.text()
+    const results = parseArxivXML(xmlText)
+    
+    await logEvent('arxiv_search_success', {
+      query,
+      resultsCount: results.length,
+      duration: Date.now() - startTime,
+      topResults: results.slice(0, 3).map(r => ({
+        title: r.title.substring(0, 100),
+        authors: r.authors.slice(0, 2).join(', '),
+      })),
+    }, traceId)
+    
+    return results
+  } catch (error) {
+    console.error('[arXiv] Error:', error)
+    
+    await logEvent('arxiv_search_error', {
+      query,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      duration: Date.now() - startTime,
+    }, traceId)
+    
+    return []
+  }
+}
+
 // Helper function: Perform web search using Serper API WITH TRACING
 async function performWebSearch(
   query: string, 
@@ -109,6 +218,43 @@ async function performWebSearch(
     }, traceId)
     
     return []
+  }
+}
+
+// ✅ NEW: Combined search function (Web + arXiv)
+async function performCombinedSearch(
+  query: string,
+  includeArxiv: boolean = true,
+  traceId?: string
+) {
+  const startTime = Date.now()
+  
+  await logEvent('combined_search_start', {
+    query,
+    includeArxiv,
+  }, traceId)
+  
+  // Perform searches in parallel
+  const searchPromises: Promise<any>[] = [
+    performWebSearch(query, 8, traceId)
+  ]
+  
+  if (includeArxiv) {
+    searchPromises.push(performArxivSearch(query, 5, traceId))
+  }
+  
+  const [webResults, arxivResults = []] = await Promise.all(searchPromises)
+  
+  await logEvent('combined_search_completed', {
+    query,
+    webResultsCount: webResults.length,
+    arxivResultsCount: arxivResults.length,
+    duration: Date.now() - startTime,
+  }, traceId)
+  
+  return {
+    web: webResults,
+    arxiv: arxivResults,
   }
 }
 
@@ -464,10 +610,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ queries })
     }
 
-    // Synthesize final research report with WEB SEARCH
+    // ✅ MODIFIED: Synthesize final research report with WEB SEARCH + ARXIV
     if (action === "synthesize_report") {
-      const { queries } = body as {
+      const { queries, includeArxiv = true } = body as {
         queries: Array<{ id: string; query: string; priority: number }>
+        includeArxiv?: boolean
       }
       
       if (!topic) {
@@ -482,32 +629,35 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        console.log(`[Research] Starting web searches for ${queries.length} queries...`)
+        console.log(`[Research] Starting searches for ${queries.length} queries... (arXiv: ${includeArxiv})`)
         
         await logEvent('report_synthesis_start', {
           topic,
           queryCount: queries.length,
+          includeArxiv,
           queries: queries.map(q => ({ query: q.query, priority: q.priority })),
         })
         
-        // Step 1: Execute web searches for each query
+        // ✅ Step 1: Execute combined searches (Web + arXiv) for each query
         const searchResults: Array<{
           query: string
           priority: number
-          results: any[]
+          webResults: any[]
+          arxivResults: any[]
         }> = []
 
         for (const query of queries) {
           try {
             console.log(`[Research] Searching: ${query.query}`)
             
-            const results = await performWebSearch(query.query, 8)
+            const { web, arxiv } = await performCombinedSearch(query.query, includeArxiv)
             
-            if (results.length > 0) {
+            if (web.length > 0 || arxiv.length > 0) {
               searchResults.push({
                 query: query.query,
                 priority: query.priority,
-                results: results,
+                webResults: web,
+                arxivResults: arxiv,
               })
             }
 
@@ -534,25 +684,46 @@ export async function POST(request: NextRequest) {
           }, { status: 500 })
         }
 
-        console.log(`[Research] Collected ${searchResults.length} search result sets`)
+        const totalWebSources = searchResults.reduce((sum, sr) => sum + sr.webResults.length, 0)
+        const totalArxivSources = searchResults.reduce((sum, sr) => sum + sr.arxivResults.length, 0)
+
+        console.log(`[Research] Collected ${searchResults.length} search result sets (Web: ${totalWebSources}, arXiv: ${totalArxivSources})`)
 
         await logEvent('web_searches_completed', {
           topic,
           totalQueries: queries.length,
           successfulSearches: searchResults.length,
-          totalSources: searchResults.reduce((sum, sr) => sum + sr.results.length, 0),
+          totalWebSources,
+          totalArxivSources,
         })
 
-        // Step 2: Extract and structure relevant content
-        const structuredData = searchResults.map(sr => ({
-          query: sr.query,
-          priority: sr.priority,
-          sources: sr.results.map((result: any) => ({
+        // ✅ Step 2: Extract and structure relevant content (combine web + arXiv)
+        const structuredData = searchResults.map(sr => {
+          // Format web results
+          const webSources = sr.webResults.map((result: any) => ({
+            type: 'web',
             title: result.title || 'Untitled',
             url: result.link || result.url || '',
             snippet: result.snippet || result.description || '',
           }))
-        }))
+          
+          // Format arXiv results
+          const arxivSources = sr.arxivResults.map((paper: any) => ({
+            type: 'arxiv',
+            title: paper.title,
+            url: paper.id,
+            pdfUrl: paper.pdfUrl,
+            snippet: paper.summary,
+            authors: paper.authors.join(', '),
+            published: paper.published,
+          }))
+          
+          return {
+            query: sr.query,
+            priority: sr.priority,
+            sources: [...webSources, ...arxivSources], // Combine both
+          }
+        })
 
         // Step 3: Generate Markdown report
         const markdownResult = await trackedLLMCall(
@@ -560,12 +731,13 @@ export async function POST(request: NextRequest) {
             model: "gpt-4o",
             input: { topic, queries, searchResults: structuredData },
             instructions:
-              "Generate a comprehensive research report in MARKDOWN format based ONLY on the provided web search results.",
+              "Generate a comprehensive research report in MARKDOWN format based ONLY on the provided web search results and arXiv papers.",
             metadata: {
               action: 'synthesize_report_markdown',
               topic,
               queryCount: queries.length,
-              sourceCount: structuredData.reduce((sum, sr) => sum + sr.sources.length, 0),
+              webSourceCount: totalWebSources,
+              arxivSourceCount: totalArxivSources,
               step: 4,
             },
           },
@@ -577,20 +749,28 @@ export async function POST(request: NextRequest) {
                 {
                   role: "system",
                   content:
-                    "You are an expert research report writer. Generate a comprehensive, FACTUAL report based ONLY on the provided web search results.\n\n" +
+                    "You are an expert research report writer. Generate a comprehensive, FACTUAL report based ONLY on the provided web search results and arXiv papers.\n\n" +
                     "=== CRITICAL RULES ===\n" +
                     "1. ONLY use information from the provided search results\n" +
                     "2. NEVER make up facts, statistics, or claims\n" +
                     "3. EVERY factual claim MUST have a citation [n]\n" +
                     "4. If information is not in the search results, explicitly state 'Information not available in current search results'\n" +
                     "5. Use exact titles and URLs from search results in References\n" +
-                    "6. Do NOT hallucinate or invent information\n\n" +
+                    "6. For arXiv papers, include author names and publication dates\n" +
+                    "7. Do NOT hallucinate or invent information\n\n" +
+                    "=== SOURCE TYPES ===\n" +
+                    "You have two types of sources:\n" +
+                    "- Web sources: General web pages, blog posts, documentation\n" +
+                    "- arXiv papers: Academic preprints with authors and abstracts\n" +
+                    "Prioritize academic sources (arXiv) for theoretical foundations and recent research.\n\n" +
                     "=== REPORT STRUCTURE ===\n" +
                     "# [Topic Title]\n\n" +
                     "## Executive Summary\n" +
                     "2-3 paragraphs summarizing key findings from search results. Lead with the most actionable insight.\n\n" +
                     "## Key Findings\n" +
                     "Organize findings by themes (use ### for sub-sections). Each finding must cite sources [n].\n\n" +
+                    "## Academic Literature Review (if arXiv papers found)\n" +
+                    "Summarize key academic papers, their methodologies, and findings.\n\n" +
                     "## Detailed Analysis\n" +
                     "Deep dive into each major aspect found in search results.\n\n" +
                     "## Practical Recommendations\n" +
@@ -602,7 +782,8 @@ export async function POST(request: NextRequest) {
                     "## Conclusion\n" +
                     "Synthesize key points and suggest next steps.\n\n" +
                     "## References\n" +
-                    "[1] Exact Title – https://url.com\n\n" +
+                    "[1] Title – https://url.com\n" +
+                    "[2] Authors (Year). Paper Title. arXiv:XXXX.XXXXX\n\n" +
                     "=== CITATION FORMAT ===\n" +
                     "Use [1], [2], [3] for inline citations. Every factual claim needs a citation.\n\n" +
                     "=== ABSOLUTELY FORBIDDEN ===\n" +
@@ -615,15 +796,25 @@ export async function POST(request: NextRequest) {
                   role: "user",
                   content:
                     `Research Topic: "${topic}"\n\n` +
-                    `=== WEB SEARCH RESULTS ===\n\n` +
+                    `=== SEARCH RESULTS (Web + arXiv) ===\n\n` +
                     structuredData.map((sd, idx) => 
                       `Query ${idx + 1}: "${sd.query}" (Priority: ${sd.priority})\n\n` +
-                      sd.sources.map((source, sIdx) => 
-                        `[Source ${idx + 1}.${sIdx + 1}]\n` +
-                        `Title: ${source.title}\n` +
-                        `URL: ${source.url}\n` +
-                        `Snippet: ${source.snippet}\n\n`
-                      ).join('')
+                      sd.sources.map((source, sIdx) => {
+                        if (source.type === 'arxiv') {
+                          return `[Source ${idx + 1}.${sIdx + 1}] [arXiv Paper]\n` +
+                                 `Title: ${source.title}\n` +
+                                 `Authors: ${source.authors}\n` +
+                                 `Published: ${source.published}\n` +
+                                 `URL: ${source.url}\n` +
+                                 `PDF: ${source.pdfUrl}\n` +
+                                 `Abstract: ${source.snippet.substring(0, 500)}...\n\n`
+                        } else {
+                          return `[Source ${idx + 1}.${sIdx + 1}] [Web]\n` +
+                                 `Title: ${source.title}\n` +
+                                 `URL: ${source.url}\n` +
+                                 `Snippet: ${source.snippet}\n\n`
+                        }
+                      }).join('')
                     ).join('---\n\n') +
                     `\n\nGenerate a comprehensive Markdown research report using ONLY the information provided above.`,
                 },
@@ -640,12 +831,13 @@ export async function POST(request: NextRequest) {
             model: "gpt-4o",
             input: { topic, queries, searchResults: structuredData },
             instructions:
-              "Generate a structured JSON report based ONLY on the provided web search results.",
+              "Generate a structured JSON report based ONLY on the provided web search results and arXiv papers.",
             metadata: {
               action: 'synthesize_report_json',
               topic,
               queryCount: queries.length,
-              sourceCount: structuredData.reduce((sum, sr) => sum + sr.sources.length, 0),
+              webSourceCount: totalWebSources,
+              arxivSourceCount: totalArxivSources,
               step: 4.5,
             },
           },
@@ -658,7 +850,7 @@ export async function POST(request: NextRequest) {
                 {
                   role: "system",
                   content:
-                    "You are an expert research report writer. Generate a STRUCTURED JSON report based ONLY on the provided web search results.\n\n" +
+                    "You are an expert research report writer. Generate a STRUCTURED JSON report based ONLY on the provided web search results and arXiv papers.\n\n" +
                     "=== JSON SCHEMA ===\n" +
                     "{\n" +
                     '  "title": "string - research topic title",\n' +
@@ -668,6 +860,16 @@ export async function POST(request: NextRequest) {
                     '      "theme": "string - theme name",\n' +
                     '      "findings": ["string - finding 1", "string - finding 2"],\n' +
                     '      "citations": [1, 2] // reference IDs\n' +
+                    '    }\n' +
+                    '  ],\n' +
+                    '  "academicPapers": [\n' +
+                    '    {\n' +
+                    '      "title": "string",\n' +
+                    '      "authors": "string",\n' +
+                    '      "year": "string",\n' +
+                    '      "summary": "string",\n' +
+                    '      "arxivId": "string",\n' +
+                    '      "pdfUrl": "string"\n' +
                     '    }\n' +
                     '  ],\n' +
                     '  "detailedAnalysis": {\n' +
@@ -702,8 +904,11 @@ export async function POST(request: NextRequest) {
                     '  "references": [\n' +
                     '    {\n' +
                     '      "id": 1,\n' +
+                    '      "type": "web|arxiv",\n' +
                     '      "title": "string",\n' +
                     '      "url": "string",\n' +
+                    '      "authors": "string (for arXiv)",\n' +
+                    '      "year": "string (for arXiv)",\n' +
                     '      "source": "string - domain name"\n' +
                     '    }\n' +
                     '  ]\n' +
@@ -713,25 +918,35 @@ export async function POST(request: NextRequest) {
                     "2. Every finding/recommendation MUST include citations array\n" +
                     "3. Reference IDs must match the references array\n" +
                     "4. If information missing, include in researchGaps\n" +
-                    "5. Do NOT invent data or sources\n\n" +
+                    "5. Separate arXiv papers in academicPapers array\n" +
+                    "6. Do NOT invent data or sources\n\n" +
                     "Output valid JSON matching this exact schema.",
                 },
                 {
                   role: "user",
                   content:
                     `Research Topic: "${topic}"\n\n` +
-                    `=== WEB SEARCH RESULTS ===\n\n` +
+                    `=== SEARCH RESULTS (Web + arXiv) ===\n\n` +
                     structuredData.map((sd, idx) => 
                       `Query ${idx + 1}: "${sd.query}"\n\n` +
-                      sd.sources.map((source, sIdx) => 
-                        `[Source ${idx + 1}.${sIdx + 1}]\n` +
-                        `Title: ${source.title}\n` +
-                        `URL: ${source.url}\n` +
-                        `Snippet: ${source.snippet}\n\n`
-                      ).join('')
+                      sd.sources.map((source, sIdx) => {
+                        if (source.type === 'arxiv') {
+                          return `[Source ${idx + 1}.${sIdx + 1}] [arXiv]\n` +
+                                 `Title: ${source.title}\n` +
+                                 `Authors: ${source.authors}\n` +
+                                 `Published: ${source.published}\n` +
+                                 `URL: ${source.url}\n` +
+                                 `Abstract: ${source.snippet.substring(0, 300)}...\n\n`
+                        } else {
+                          return `[Source ${idx + 1}.${sIdx + 1}] [Web]\n` +
+                                 `Title: ${source.title}\n` +
+                                 `URL: ${source.url}\n` +
+                                 `Snippet: ${source.snippet}\n\n`
+                        }
+                      }).join('')
                     ).join('---\n\n') +
                     `\n\nGenerate a structured JSON report using ONLY the information above.\n` +
-                    `Create the references array first by numbering all unique sources, then use those IDs in citations.`,
+                    `Create the references array first by numbering all unique sources (both web and arXiv), then use those IDs in citations.`,
                 },
               ],
             })
@@ -745,6 +960,7 @@ export async function POST(request: NextRequest) {
           title: topic,
           executiveSummary: "Report generation failed",
           keyFindings: [],
+          academicPapers: [],
           detailedAnalysis: { sections: [] },
           recommendations: [],
           implementationConsiderations: {
@@ -762,6 +978,7 @@ export async function POST(request: NextRequest) {
           topic,
           markdownLength: markdownResult.output.length,
           referenceCount: structuredReport.references.length,
+          arxivPaperCount: structuredReport.academicPapers?.length || 0,
           recommendationCount: structuredReport.recommendations.length,
           researchGapCount: structuredReport.researchGaps.length,
         })
@@ -773,7 +990,9 @@ export async function POST(request: NextRequest) {
           metadata: {
             topic: topic,
             queriesSearched: searchResults.length,
-            totalSources: searchResults.reduce((sum, sr) => sum + sr.results.length, 0),
+            totalWebSources,
+            totalArxivSources,
+            totalSources: totalWebSources + totalArxivSources,
             timestamp: new Date().toISOString(),
             models: {
               markdown: "gpt-4o",
