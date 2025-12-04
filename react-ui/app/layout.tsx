@@ -13,7 +13,7 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: "Honda IRIS - Deep Research Studio",
+  title: "Honda AURA - Deep Research Studio",
   description: "AI Research Environment for structured research workflows",
   generator: "v0.app",
 }

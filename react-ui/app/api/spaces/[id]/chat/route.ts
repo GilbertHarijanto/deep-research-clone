@@ -9,19 +9,25 @@ export const dynamic = "force-dynamic";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+function log(...args: any[]) {
+  console.log("[/api/spaces/[id]/chat]", ...args);
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const { id } = await ctx.params;           // ✅ await and use id
+    const { id } = await ctx.params;
+
+    log("Incoming chat POST for space:", id);
+
     const space = mustGetSpace(id);
+    log("Loaded space:", space.topic);
 
     const recent = space.messages.slice(-20);
+    log("Recent messages count:", recent.length);
 
-    const system = {
+    const systemMsg = {
       role: "system" as const,
-      content:
-        `You are a helpful research assistant for the space "${space.topic}".\n\n` +
-        `You have:\n- A research markdown report\n- References\n- A graph of topic → ideation → queries → findings\n\n` +
-        `When relevant, ground answers in the space's report and references. Be concise, cite sources in-line (e.g., [1]).`,
+      content: `You are a helpful research assistant for the space "${space.topic}".`,
     };
 
     const contextBlob = JSON.stringify(
@@ -29,28 +35,38 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
         topic: space.topic,
         ideation: space.ideation,
         queries: space.queries,
-        findings: space.findings.slice(0, 20),
-        references: space.references,
-        reportMarkdown: (space.reportMarkdown ?? "").substring(0, 12000),
+        reportMarkdown: (space.reportMarkdown ?? "").slice(0, 8000),
       },
       null,
       2
     );
 
-    const ctxMsg = { role: "system" as const, content: `SPACE_CONTEXT\n\n${contextBlob}` };
+    const ctxMsg = {
+      role: "system" as const,
+      content: `SPACE_CONTEXT:\n\n${contextBlob}`,
+    };
 
     const history = recent.map((m) => ({
       role: m.role,
-      content: (m.scope ? `(scope: ${m.scope.nodeType}#${m.scope.nodeId}) ` : "") + (m.text || "(attachment)"),
-    })) as Array<{ role: "user" | "assistant" | "system"; content: string }>;
+      content: m.text ?? "",
+    }));
+
+    log("Sending to OpenAI...", {
+      system: systemMsg,
+      ctxLength: contextBlob.length,
+      messages: history.length,
+    });
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       temperature: 0.6,
-      messages: [system, ctxMsg, ...history],
+      messages: [systemMsg, ctxMsg, ...history],
     });
 
-    const text = completion.choices[0]?.message?.content?.trim() || "…";
+    log("OpenAI raw response:", completion);
+
+    const text = completion.choices[0]?.message?.content?.trim() || "";
+    log("Extracted response text:", text);
 
     const aiMsg: SpaceMessage = {
       id: randomUUID(),
@@ -59,9 +75,16 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       createdAt: new Date().toISOString(),
     };
 
-    addMessage(id, aiMsg);                      // ✅ use id
+    addMessage(id, aiMsg);
+
+    log("AI message saved:", aiMsg);
+
     return NextResponse.json(aiMsg);
-  } catch (e) {
-    return NextResponse.json({ error: (e as Error).message || "Chat failed" }, { status: 500 });
+  } catch (err) {
+    log("ERROR OCCURRED:", err);
+    return NextResponse.json(
+      { error: (err as Error).message ?? "Chat failed" },
+      { status: 500 }
+    );
   }
 }

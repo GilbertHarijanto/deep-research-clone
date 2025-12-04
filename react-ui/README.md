@@ -1,4 +1,4 @@
-# Honda IRIS - Deep Research Studio
+# Honda AURA - Deep Research Studio
 
 A minimal, monochrome AI research interface for structured research workflows.
 
