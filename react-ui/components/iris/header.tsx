@@ -24,7 +24,7 @@ export function Header() {
             </Button>
 
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-semibold tracking-tight text-[#0A0A0A]">Honda IRIS</span>
+              <span className="text-2xl font-semibold tracking-tight text-[#0A0A0A]">Honda AURA</span>
               <span className="text-xl text-[#0A0A0A]">◉</span>
             </div>
           </div>

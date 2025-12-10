@@ -11,8 +11,36 @@ import { v4 as uuidv4 } from "uuid"
 
 function safeJsonParse<T>(text: string, fallback: T): T {
   try {
-    return JSON.parse(text) as T
-  } catch {
+    // Remove markdown code blocks
+    let cleaned = text
+      .replace(/```json\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim()
+    
+    // If output is truncated (doesn't end with ]), try to fix it
+    if (cleaned.includes('[') && !cleaned.endsWith(']')) {
+      // Find the last complete entry
+      const lastComma = cleaned.lastIndexOf(',')
+      const lastQuote = cleaned.lastIndexOf('"')
+      
+      if (lastComma > 0 && lastQuote > lastComma) {
+        // Truncated mid-entry, remove incomplete entry
+        cleaned = cleaned.substring(0, lastComma) + ']'
+      } else if (lastComma > 0) {
+        // Truncated after comma
+        cleaned = cleaned.substring(0, lastComma) + ']'
+      } else {
+        // Try to close the array
+        if (!cleaned.endsWith(']')) {
+          cleaned = cleaned + ']'
+        }
+      }
+    }
+    
+    return JSON.parse(cleaned) as T
+  } catch (error) {
+    console.error('[JSON Parse Error]:', error)
+    console.error('[Original text]:', text.substring(0, 200))
     return fallback
   }
 }
