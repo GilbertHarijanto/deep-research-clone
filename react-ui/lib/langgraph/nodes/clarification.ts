@@ -23,6 +23,15 @@ export async function clarificationNode(
   state: ResearchState,
   openai: OpenAI
 ): Promise<Partial<ResearchState>> {
+  // Skip question generation if clarifying answers are already provided
+  if (state.clarifyingAnswers && state.clarifyingAnswers.length > 0) {
+    console.log(`[Clarification] Skipping - ${state.clarifyingAnswers.length} answers already provided`)
+    return {
+      clarificationComplete: true,
+      currentStep: "clarification",
+    }
+  }
+
   console.log(`[Clarification] Generating questions for: "${state.topic}"`)
 
   try {

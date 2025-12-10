@@ -17,19 +17,22 @@
 
 import { StateGraph, END } from "@langchain/langgraph"
 import OpenAI from "openai"
-import { ResearchState, GraphConfig } from "./state/types"
+import { ResearchState, GraphConfig, Message } from "./state/types"
 import {
   clarificationNode,
   queryGenerationNode,
   searchNode,
   reportSynthesisNode,
+  chatNode,
 } from "./nodes"
+import { mcpToolsNode } from "./nodes/mcpTools"
 import { criticAgent, ideationAgent, metaAgent } from "./agents"
+import { connectToAllMCPServers, MCPClient, closeAllMCPConnections } from "../mcp/client"
 
 /**
  * Create the research graph
  */
-export function createResearchGraph(config: GraphConfig) {
+export async function createResearchGraph(config: GraphConfig) {
   const openai = new OpenAI({
     apiKey: config.openaiApiKey,
   })
@@ -109,7 +112,7 @@ export function createResearchGraph(config: GraphConfig) {
   // Set entry point
   graph.setEntryPoint("clarify")
 
-  // Basic flow: Clarification → Queries → Search → Report
+  // Basic flow: Clarification → Queries → Search → (MCP) → Report
   graph.addEdge("clarify", "generate_queries")
   graph.addEdge("generate_queries", "search")
   graph.addEdge("search", "synthesize_report")
@@ -165,7 +168,7 @@ export async function runResearch(
     includeArxiv?: boolean
   }
 ): Promise<ResearchState> {
-  const graph = createResearchGraph(config)
+  const graph = await createResearchGraph(config)
 
   const initialState: ResearchState = {
     topic,
@@ -199,7 +202,7 @@ export async function* streamResearch(
     includeArxiv?: boolean
   }
 ): AsyncGenerator<ResearchState, void, unknown> {
-  const graph = createResearchGraph(config)
+  const graph = await createResearchGraph(config)
 
   const initialState: ResearchState = {
     topic,
@@ -216,5 +219,64 @@ export async function* streamResearch(
 
   for await (const state of graph.stream(initialState)) {
     yield state
+  }
+}
+
+/**
+ * Chat with the research agent
+ *
+ * This function allows you to have a conversation with the agent after research is complete.
+ * The agent can answer questions and execute MCP tools based on your instructions.
+ */
+export async function chatWithAgent(
+  researchState: ResearchState,
+  userMessage: string,
+  config: GraphConfig
+): Promise<ResearchState> {
+  const openai = new OpenAI({
+    apiKey: config.openaiApiKey,
+  })
+
+  // Connect to MCP servers if enabled
+  let mcpClients: MCPClient[] = []
+  if (config.enableMCP) {
+    try {
+      mcpClients = await connectToAllMCPServers()
+      console.log(`[Chat] Connected to ${mcpClients.length} MCP servers`)
+    } catch (error) {
+      console.error("[Chat] Failed to connect to MCP servers:", error)
+    }
+  }
+
+  try {
+    // Add user message to chat history
+    const chatMessages: Message[] = [
+      ...(researchState.chatMessages || []),
+      {
+        role: "user",
+        content: userMessage,
+        timestamp: new Date().toISOString(),
+      },
+    ]
+
+    // Create updated state with new message
+    const stateWithMessage: ResearchState = {
+      ...researchState,
+      chatMessages,
+    }
+
+    // Process chat with MCP tools
+    const chatResult = await chatNode(stateWithMessage, openai, { mcpClients })
+
+    // Return updated state
+    return {
+      ...researchState,
+      ...chatResult,
+    }
+  } finally {
+    // Cleanup MCP connections
+    if (mcpClients.length > 0) {
+      await closeAllMCPConnections(mcpClients)
+    }
   }
 }

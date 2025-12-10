@@ -12,14 +12,8 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server"
-import { runResearch, createResearchGraph } from "@/lib/langgraph/graph"
+import { runResearch, createResearchGraph, chatWithAgent } from "@/lib/langgraph/graph"
 import type { GraphConfig, ResearchState } from "@/lib/langgraph/state/types"
-import OpenAI from "openai"
-
-// Initialize OpenAI (for chat only)
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
 
 /**
  * Create graph configuration from environment variables
@@ -60,8 +54,11 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const config = getGraphConfig()
-      const graph = createResearchGraph(config)
+      const config = {
+        ...getGraphConfig(),
+        enableMCP: false, // Don't need MCP for question generation
+      }
+      const graph = await createResearchGraph(config)
 
       // Run only the clarification node
       const result = await graph.invoke({
@@ -91,8 +88,11 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const config = getGraphConfig()
-      const graph = createResearchGraph(config)
+      const config = {
+        ...getGraphConfig(),
+        enableMCP: false, // Don't need MCP for query generation
+      }
+      const graph = await createResearchGraph(config)
 
       // Run clarification + query generation nodes
       const result = await graph.invoke({
@@ -144,9 +144,14 @@ export async function POST(request: NextRequest) {
 
     // ===== ACTION: Synthesize full research report =====
     if (action === "synthesize_report") {
-      const { queries, includeArxiv = true } = body as {
+      const { queries, includeArxiv = true, clarifyingData } = body as {
         queries: Array<{ id: string; query: string; priority: number }>
         includeArxiv?: boolean
+        clarifyingData?: Array<{
+          question: string
+          answer: string
+          weight?: number
+        }>
       }
 
       if (!topic) {
@@ -167,19 +172,26 @@ export async function POST(request: NextRequest) {
       console.log(
         `[API] Starting full research pipeline for: "${topic}" with ${queries.length} queries`
       )
+      if (clarifyingData && clarifyingData.length > 0) {
+        console.log(`[API] Using ${clarifyingData.length} clarifying answers`)
+      }
 
       const config = getGraphConfig()
 
       // Run the full research pipeline using LangGraph
       const result = await runResearch(topic, config, {
         includeArxiv,
+        clarifyingAnswers: clarifyingData,
       })
 
       if (!result.report) {
+        console.error("[API] Research failed - State:", JSON.stringify(result, null, 2))
         return NextResponse.json(
           {
             error: "Failed to generate research report",
             details: result.errors?.join(", ") || "Unknown error",
+            currentStep: result.currentStep,
+            warnings: result.warnings,
           },
           { status: 500 }
         )
@@ -205,7 +217,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // ===== ACTION: Chat with research context =====
+    // ===== ACTION: Chat with research context (with MCP support) =====
     if (action === "chat") {
       const { markdown, structured, messages, userQuery } = body as {
         markdown: string
@@ -214,46 +226,61 @@ export async function POST(request: NextRequest) {
         userQuery: string
       }
 
-      if (!topic) {
+      if (!topic || !userQuery) {
         return NextResponse.json(
-          { error: "Topic is required" },
+          { error: "Topic and userQuery are required" },
           { status: 400 }
         )
       }
 
       try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4o",
-          temperature: 0.7,
-          messages: [
-            {
-              role: "system",
-              content:
-                `You are a helpful research assistant discussing a report about "${topic}".\n\n` +
-                `=== RESEARCH CONTEXT ===\n\n` +
-                `Full Report:\n${markdown}\n\n` +
-                `Structured Data:\n${JSON.stringify(structured, null, 2)}\n\n` +
-                `=== YOUR ROLE ===\n` +
-                `- Answer questions based on the research report\n` +
-                `- Cite specific sections or findings when relevant\n` +
-                `- If asked about something not in the report, clearly state that\n` +
-                `- Provide additional context or explanations when helpful\n` +
-                `- Suggest related questions or areas to explore\n` +
-                `- Be conversational but accurate`,
-            },
-            ...messages.map((m) => ({
-              role: m.role as "user" | "assistant",
-              content: m.content,
-            })),
-          ],
-        })
+        console.log(`[API] Chat request for topic: "${topic}"`)
+        console.log(`[API] User query: "${userQuery}"`)
 
-        const response =
-          completion.choices[0]?.message?.content ??
-          "I couldn't generate a response."
+        // Create a research state from the provided data
+        const researchState: ResearchState = {
+          topic,
+          report: markdown && structured ? {
+            markdown,
+            structured,
+            metadata: structured.metadata || {
+              topic,
+              queriesSearched: 0,
+              totalWebSources: 0,
+              totalArxivSources: 0,
+              totalSources: 0,
+              timestamp: new Date().toISOString(),
+              models: { markdown: "gpt-4o", structured: "gpt-4o" },
+            },
+          } : undefined,
+          chatMessages: messages.map(m => ({
+            role: m.role as "user" | "assistant" | "system",
+            content: m.content,
+            timestamp: new Date().toISOString(),
+          })),
+          currentStep: "chat",
+          errors: [],
+          warnings: [],
+        }
+
+        // Get config with MCP enabled
+        const config: GraphConfig = {
+          ...getGraphConfig(),
+          enableMCP: true, // Enable MCP for chat
+        }
+
+        console.log(`[API] Calling chatWithAgent with MCP enabled`)
+
+        // Use the MCP-enabled chat function
+        const result = await chatWithAgent(researchState, userQuery, config)
+
+        const response = result.chatResponse ?? "I couldn't generate a response."
+
+        console.log(`[API] Chat response generated successfully`)
 
         return NextResponse.json({
           response,
+          messages: result.chatMessages, // Return updated message history
         })
       } catch (error) {
         console.error("[Chat] Error:", error)

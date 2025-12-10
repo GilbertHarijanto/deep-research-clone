@@ -86,6 +86,7 @@ export default function HomePage() {
                 isComplete={currentStep === "chat"}
                 queries={queries}
                 topic={topic}
+                clarifyingData={clarifyingAnswers}
               />
             )}
           </div>

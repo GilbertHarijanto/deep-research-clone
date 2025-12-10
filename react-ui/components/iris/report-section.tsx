@@ -12,6 +12,11 @@ interface ReportSectionProps {
   isComplete: boolean
   queries: Array<{ id: string; query: string; priority: number }>
   topic: string
+  clarifyingData?: Array<{
+    question: string
+    answer: string
+    weight?: number
+  }>
 }
 
 interface Citation {
@@ -67,6 +72,7 @@ export function ReportSection({
   isComplete,
   queries,
   topic,
+  clarifyingData,
 }: ReportSectionProps) {
   const [markdown, setMarkdown] = useState("")
   const [structured, setStructured] = useState<StructuredReport | null>(null)
@@ -97,6 +103,7 @@ export function ReportSection({
           action: "synthesize_report",
           topic,
           queries,
+          clarifyingData,
         }),
       })
 
@@ -336,110 +343,129 @@ Please run the research queries to generate a comprehensive report with proper c
     return elements
   }
 
-  // ✅ Completed state
-  if (isComplete) {
-    return (
-      <div className="animate-in fade-in duration-200">
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-[#666666] uppercase tracking-wider">
-            Report Generated
-          </h2>
-          <p className="text-[#0A0A0A]">
-            Research report is ready with {citations.length} citations
-          </p>
-        </div>
-        <div className="mt-6 h-px bg-[#E5E5E5]" />
-      </div>
-    )
-  }
-
-  if (!isActive) return null
+  if (!isActive && !isComplete) return null
 
   return (
     <div className="animate-in fade-in duration-200">
       <div className="space-y-6">
         {/* Header with actions */}
-        <div className="flex items-center justify-between sticky top-0 bg-white py-4 z-10 border-b border-[#E5E5E5]">
-          <div>
-            <h2 className="text-sm font-medium text-[#666666] uppercase tracking-wider">
-              Research Report
-            </h2>
-            {metadata && (
-              <p className="text-xs text-[#999999] mt-1">
-                {metadata.queriesSearched} queries • {metadata.totalSources} sources • {new Date(metadata.timestamp).toLocaleString()}
-              </p>
-            )}
+        {!isComplete && (
+          <div className="flex items-center justify-between sticky top-0 bg-white py-4 z-10 border-b border-[#E5E5E5]">
+            <div>
+              <h2 className="text-sm font-medium text-[#666666] uppercase tracking-wider">
+                Research Report
+              </h2>
+              {metadata && (
+                <p className="text-xs text-[#999999] mt-1">
+                  {metadata.queriesSearched} queries • {metadata.totalSources} sources • {new Date(metadata.timestamp).toLocaleString()}
+                </p>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                onClick={handleRegenerate}
+                variant="ghost"
+                size="sm"
+                className="text-[#0A0A0A] hover:bg-[#F8F8F8] rounded-xl"
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                )}
+                Regenerate
+              </Button>
+
+              {/* Markdown actions */}
+              <Button
+                onClick={handleDownloadMarkdown}
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                disabled={!markdown || loading}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Download MD
+              </Button>
+              <Button
+                onClick={handleCopyMarkdown}
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                disabled={!markdown || loading}
+              >
+                {copiedMarkdown ? (
+                  <Check className="w-4 h-4 mr-2 text-green-600" />
+                ) : (
+                  <Copy className="w-4 h-4 mr-2" />
+                )}
+                {copiedMarkdown ? "Copied!" : "Copy MD"}
+              </Button>
+
+              {/* JSON actions */}
+              <Button
+                onClick={handleDownloadJSON}
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                disabled={!structured || loading}
+              >
+                <FileJson className="w-4 h-4 mr-2" />
+                Download JSON
+              </Button>
+              <Button
+                onClick={handleCopyJSON}
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                disabled={!structured || loading}
+              >
+                {copiedJSON ? (
+                  <Check className="w-4 h-4 mr-2 text-green-600" />
+                ) : (
+                  <Copy className="w-4 h-4 mr-2" />
+                )}
+                {copiedJSON ? "Copied!" : "Copy JSON"}
+              </Button>
+            </div>
           </div>
-          
-          <div className="flex gap-2">
-            <Button
-              onClick={handleRegenerate}
-              variant="ghost"
-              size="sm"
-              className="text-[#0A0A0A] hover:bg-[#F8F8F8] rounded-xl"
-              disabled={loading}
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4 mr-2" />
-              )}
-              Regenerate
-            </Button>
-            
-            {/* Markdown actions */}
-            <Button
-              onClick={handleDownloadMarkdown}
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              disabled={!markdown || loading}
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              Download MD
-            </Button>
-            <Button
-              onClick={handleCopyMarkdown}
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              disabled={!markdown || loading}
-            >
-              {copiedMarkdown ? (
-                <Check className="w-4 h-4 mr-2 text-green-600" />
-              ) : (
-                <Copy className="w-4 h-4 mr-2" />
-              )}
-              {copiedMarkdown ? "Copied!" : "Copy MD"}
-            </Button>
-            
-            {/* JSON actions */}
-            <Button
-              onClick={handleDownloadJSON}
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              disabled={!structured || loading}
-            >
-              <FileJson className="w-4 h-4 mr-2" />
-              Download JSON
-            </Button>
-            <Button
-              onClick={handleCopyJSON}
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              disabled={!structured || loading}
-            >
-              {copiedJSON ? (
-                <Check className="w-4 h-4 mr-2 text-green-600" />
-              ) : (
-                <Copy className="w-4 h-4 mr-2" />
-              )}
-              {copiedJSON ? "Copied!" : "Copy JSON"}
-            </Button>
+        )}
+
+        {/* Completed state header - more compact */}
+        {isComplete && markdown && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-[#666666] uppercase tracking-wider">
+                Research Report
+              </h2>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleDownloadMarkdown}
+                  variant="ghost"
+                  size="sm"
+                  className="text-[#666666] hover:text-[#0A0A0A] hover:bg-[#F8F8F8] rounded-xl"
+                  disabled={!markdown}
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  Download MD
+                </Button>
+                <Button
+                  onClick={handleDownloadJSON}
+                  variant="ghost"
+                  size="sm"
+                  className="text-[#666666] hover:text-[#0A0A0A] hover:bg-[#F8F8F8] rounded-xl"
+                  disabled={!structured}
+                >
+                  <FileJson className="w-4 h-4 mr-2" />
+                  Download JSON
+                </Button>
+              </div>
+            </div>
+            <div className="h-px bg-[#E5E5E5]" />
           </div>
-        </div>
+        )}
 
         {error && (
           <div className="text-amber-600 text-sm bg-amber-50 border border-amber-200 rounded-md p-3">
@@ -528,15 +554,17 @@ Please run the research queries to generate a comprehensive report with proper c
               </details>
             )}
 
-            <div className="flex justify-end pt-4">
-              <Button
-                onClick={() => onComplete(markdown, structured)} 
-                className="bg-[#0A0A0A] text-white hover:bg-[#333333] rounded-xl px-8"
-                disabled={loading}
-              >
-                Continue to Chat
-              </Button>
-            </div>
+            {!isComplete && (
+              <div className="flex justify-end pt-4">
+                <Button
+                  onClick={() => onComplete(markdown, structured)}
+                  className="bg-[#0A0A0A] text-white hover:bg-[#333333] rounded-xl px-8"
+                  disabled={loading}
+                >
+                  Continue to Chat
+                </Button>
+              </div>
+            )}
           </>
         )}
       </div>

@@ -24,6 +24,8 @@ export async function queryGenerationNode(
   state: ResearchState,
   openai: OpenAI
 ): Promise<Partial<ResearchState>> {
+  console.log(`[QueryGen] State has clarifyingAnswers:`, state.clarifyingAnswers ? `Yes (${state.clarifyingAnswers.length})` : "No")
+
   if (!state.clarifyingAnswers || state.clarifyingAnswers.length === 0) {
     console.log("[QueryGen] No clarifying answers, using enhanced default queries")
     return {
@@ -71,6 +73,7 @@ export async function queryGenerationNode(
   console.log(
     `[QueryGen] Generating queries from ${state.clarifyingAnswers.length} answers`
   )
+  console.log(`[QueryGen] Clarifying answers:`, JSON.stringify(state.clarifyingAnswers, null, 2))
 
   try {
     const completion = await openai.chat.completions.create({
@@ -164,10 +167,14 @@ Example: ["query 1", "query 2", "query 3", ...]`,
     })
 
     const output = completion.choices[0]?.message?.content ?? "[]"
+    console.log(`[QueryGen] Raw LLM output:`, output.substring(0, 500))
+
     const queryStrings = safeJsonParse<string[]>(output, [
       `Overview of ${state.topic}`,
       `Recent developments in ${state.topic}`,
     ])
+
+    console.log(`[QueryGen] Parsed query strings:`, queryStrings)
 
     // Convert to SearchQuery objects
     const queries: SearchQuery[] = queryStrings.map((query, idx) => ({
@@ -177,6 +184,30 @@ Example: ["query 1", "query 2", "query 3", ...]`,
     }))
 
     console.log(`[QueryGen] Generated ${queries.length} queries`)
+
+    if (queries.length === 0) {
+      console.error(`[QueryGen] WARNING: Generated 0 queries! Using fallback queries.`)
+      return {
+        searchQueries: [
+          {
+            id: uuidv4(),
+            query: `${state.topic} overview research 2024`,
+            priority: 5,
+          },
+          {
+            id: uuidv4(),
+            query: `${state.topic} recent developments`,
+            priority: 5,
+          },
+          {
+            id: uuidv4(),
+            query: `${state.topic} current state of art`,
+            priority: 4,
+          },
+        ],
+        currentStep: "query_generation",
+      }
+    }
 
     return {
       searchQueries: queries,

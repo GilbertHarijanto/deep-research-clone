@@ -167,4 +167,6 @@ export interface GraphConfig {
   maxSearchQueries?: number
   enableArxiv?: boolean
   enableAgentCollaboration?: boolean
+  enableMCP?: boolean
+  mcpConfigPath?: string
 }
