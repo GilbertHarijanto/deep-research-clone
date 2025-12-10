@@ -15,13 +15,13 @@ export default function SpaceView({ id }: { id: string }) {
     })();
   }, [id]);
 
-
   const appendMessage = useCallback((msg: SpaceMessage) => {
     setSpace((s) =>
-      s ? { ...s, messages: [...s.messages, msg] } : s
+      s
+        ? { ...s, messages: Array.isArray(s.messages) ? [...s.messages, msg] : [msg] }
+        : s
     );
   }, []);
-
 
   type AskArgs = {
     scopeNodeId: string;
@@ -71,15 +71,23 @@ export default function SpaceView({ id }: { id: string }) {
 
   if (!space) return <div className="p-6 text-sm">Loading…</div>;
 
+  // --- SAFE VALUES ---
+  const safeTopic = space.topic ?? "";
+  const safeIdeation = Array.isArray(space.ideation) ? space.ideation : [];
+  const safeQueries = Array.isArray(space.queries) ? space.queries : [];
+  const safeFindings = Array.isArray(space.findings) ? space.findings : [];
+  const safeMarkdown = space.reportMarkdown ?? "";
+  const safeMessages = Array.isArray(space.messages) ? space.messages : [];
+
   return (
     <div className="p-6">
       <ResearchCanvas
-        topic={space.topic}
-        ideation={space.ideation}
-        queries={space.queries}
-        findings={space.findings}
-        reportMarkdown={space.reportMarkdown}
-        messages={space.messages}
+        topic={safeTopic}
+        ideation={safeIdeation}
+        queries={safeQueries}
+        findings={safeFindings}
+        reportMarkdown={safeMarkdown}
+        messages={safeMessages}
         onAskFromCanvas={handleAskFromCanvas}
       />
     </div>

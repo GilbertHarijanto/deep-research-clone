@@ -217,7 +217,7 @@ export default function ResearchCanvas({
   queries,
   findings,
   reportMarkdown,
-  messages,
+  messages = [],
   onAskFromCanvas,
 }: ResearchCanvasProps) {
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);

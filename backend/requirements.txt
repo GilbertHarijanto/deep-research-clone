@@ -1,12 +1,19 @@
-openai==1.78.1
-streamlit==1.29.0
-python-dotenv==1.0.0
-fastapi
-uvicorn
-langfuse==3.6.2
-protobuf==5.27.2
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pillow==10.4.0
+numpy==1.26.4
+httpx==0.27.2
+pydantic==2.8.2
 
-# Optional: commonly used utils
-pandas
-numpy
-requests
+# Order matters in practice: install torch first, then paddlepaddle, then paddleocr
+torch==2.3.1
+paddlepaddle==2.6.2
+paddleocr==2.7.3
+
+pypdfium2==4.30.0
+transformers==4.44.2
+accelerate==0.34.2
+
+openai==1.78.1
+tiktoken==0.7.0
