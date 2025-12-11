@@ -8,11 +8,12 @@ pydantic==2.8.2
 
 # Order matters in practice: install torch first, then paddlepaddle, then paddleocr
 torch==2.3.1
+torchvision==0.18.1
 paddlepaddle==2.6.2
 paddleocr==2.7.3
 
 pypdfium2==4.30.0
-transformers==4.44.2
+transformers>=4.45.0
 accelerate==0.34.2
 
 openai==1.78.1

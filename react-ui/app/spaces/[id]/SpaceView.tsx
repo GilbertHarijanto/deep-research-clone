@@ -25,18 +25,19 @@ export default function SpaceView({ id }: { id: string }) {
 
   type AskArgs = {
     scopeNodeId: string;
-    scopeType: "query" | "topic" | "report" | "idea" | "evidence";
+    scopeType: "query" | "topic" | "report" | "idea" | "evidence" | "image";
+    scopeImageUrl?: string;
     question: string;
   };
 
   const handleAskFromCanvas = useCallback(
-    async ({ scopeNodeId, scopeType, question }: AskArgs) => {
+    async ({ scopeNodeId, scopeType, scopeImageUrl, question }: AskArgs) => {
       const res = await fetch(`/api/spaces/${id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text: question,
-          scope: { nodeId: scopeNodeId, nodeType: scopeType },
+          scope: { nodeId: scopeNodeId, nodeType: scopeType, imageUrl: scopeImageUrl },
         }),
       });
 

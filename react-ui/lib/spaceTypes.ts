@@ -15,7 +15,11 @@ export type SpaceMessage = {
   text: string;
   attachments?: SpaceAsset[];
   createdAt: string;
-  scope?: { nodeId: string; nodeType: "topic" | "idea" | "query" | "evidence" | "report" };
+  scope?: {
+    nodeId: string;
+    nodeType: "topic" | "idea" | "query" | "evidence" | "report" | "image";
+    imageUrl?: string;
+  };
 };
 
 export type SpaceSnapshot = {

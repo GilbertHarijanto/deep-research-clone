@@ -54,10 +54,31 @@ vl_model = AutoModelForVision2Seq.from_pretrained(
 ).to("cpu").eval()
 
 async def _fetch_bytes(url: str, timeout: int = 20) -> bytes:
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as c:
-        r = await c.get(url)
-        r.raise_for_status()
-        return r.content
+    # Respect proxy settings and set a UA; log and retry with relaxed TLS if needed
+    headers = {"User-Agent": "deep-research-analyzer/0.1"}
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            headers=headers,
+            trust_env=True,
+        ) as c:
+            r = await c.get(url)
+            r.raise_for_status()
+            return r.content
+    except Exception as e:
+        print(f"[analyze] fetch failed for {url}: {e}")
+        # Retry once with verify=False to bypass SSL issues
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            headers=headers,
+            verify=False,
+            trust_env=True,
+        ) as c:
+            r = await c.get(url)
+            r.raise_for_status()
+            return r.content
 
 def _is_pdf(name: str) -> bool:
     return (name or "").lower().endswith(".pdf")
@@ -287,8 +308,8 @@ async def analyze(
     for u in image_urls:
         try:
             vis_imgs.append(_load_img(await _fetch_bytes(u)))
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[analyze] failed to load image URL {u}: {e}")
 
     # OCR documents → optional Qwen summarization
     ocr_texts, ocr_blocks = [], []

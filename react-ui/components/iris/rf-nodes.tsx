@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { NodeProps, Handle, Position } from "reactflow";
+import { useReactFlow } from "reactflow";
 
 /* -------------------------------------------------------------------------- */
 /*                                  TOPIC NODE                                */
@@ -169,8 +170,23 @@ function NoteNode({ data, selected }: NodeProps<{ text: string }>) {
 function ImageNode({
   data,
   selected,
+  id,
 }: NodeProps<{ url?: string }>) {
   const [url, setUrl] = useState(data.url || "");
+  const { setNodes } = useReactFlow();
+
+  useEffect(() => {
+    setUrl(data.url || "");
+  }, [data.url]);
+
+  const handleUrlChange = (next: string) => {
+    setUrl(next);
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, url: next } } : n
+      )
+    );
+  };
 
   return (
     <div
@@ -186,7 +202,7 @@ function ImageNode({
       <div className="p-2">
         <input
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={(e) => handleUrlChange(e.target.value)}
           placeholder="Paste image URL"
           className="w-full rounded border px-2 py-1 text-xs focus:ring-2 focus:ring-sky-300"
           onPointerDown={(e) => e.stopPropagation()}
@@ -282,6 +298,134 @@ function SummaryNode({
 }
 
 /* -------------------------------------------------------------------------- */
+/*                            CHAT RESPONSE NODE                              */
+/* -------------------------------------------------------------------------- */
+
+function ChatResponseNode({
+  data,
+  selected,
+}: NodeProps<{ question: string; response: string; timestamp: string }>) {
+  return (
+    <div
+      className={[
+        "rounded-2xl border bg-gradient-to-br from-purple-50 to-blue-50 shadow-md w-fit max-w-[320px] whitespace-pre-wrap break-words overflow-hidden",
+        selected
+          ? "ring-2 ring-purple-400 border-purple-300"
+          : "border-purple-200",
+      ].join(" ")}
+    >
+      <div
+        className="px-3 py-2 text-xs font-semibold text-purple-700 border-b border-purple-200 bg-white/50 cursor-grab"
+        data-drag-handle
+      >
+        💬 Chat Response
+      </div>
+
+      <div className="p-3 max-h-[400px] overflow-y-auto">
+        {/* Question */}
+        <div className="mb-3">
+          <div className="text-[9px] font-semibold text-purple-600 uppercase mb-1">
+            Question:
+          </div>
+          <div className="text-[11px] text-neutral-700 italic">
+            "{data.question}"
+          </div>
+        </div>
+
+        {/* Response */}
+        <div>
+          <div className="text-[9px] font-semibold text-purple-600 uppercase mb-1">
+            Response:
+          </div>
+          <div className="text-[11px] text-neutral-900 leading-relaxed">
+            {data.response}
+          </div>
+        </div>
+
+        {/* Timestamp */}
+        <div className="mt-3 pt-2 border-t border-purple-100 text-[9px] text-neutral-400">
+          {new Date(data.timestamp).toLocaleTimeString()}
+        </div>
+      </div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="w-2 h-2 bg-purple-400"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="w-2 h-2 bg-purple-400"
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                            DOCUMENT NODE                                   */
+/* -------------------------------------------------------------------------- */
+
+function DocumentNode({
+  data,
+  selected,
+}: NodeProps<{ title: string; text: string; kind: "doc" | "image" }>) {
+  const textPreview =
+    data.text && data.text.length > 200
+      ? data.text.slice(0, 197) + "..."
+      : data.text || "Processing...";
+
+  const icon = data.kind === "doc" ? "📄" : "🖼️";
+
+  return (
+    <div
+      className={[
+        "rounded-2xl border bg-white shadow-sm w-fit max-w-[240px] whitespace-pre-wrap break-words overflow-hidden",
+        selected
+          ? "ring-2 ring-teal-300 border-teal-300"
+          : "border-teal-200",
+      ].join(" ")}
+    >
+      <div
+        className="px-3 py-2 text-xs font-semibold text-teal-700 border-b border-teal-200 cursor-grab"
+        data-drag-handle
+      >
+        {icon} Document
+      </div>
+
+      <div className="p-3">
+        {/* Title */}
+        <div className="mb-2 text-xs font-semibold text-teal-800">
+          {data.title}
+        </div>
+
+        {/* Extracted Text Preview */}
+        <div className="text-[10px] text-neutral-600 leading-relaxed bg-neutral-50 rounded p-2 max-h-[120px] overflow-y-auto">
+          {textPreview}
+        </div>
+
+        {data.text && data.text.length > 200 && (
+          <div className="mt-1 text-[9px] text-neutral-400">
+            {data.text.length} characters extracted
+          </div>
+        )}
+      </div>
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="w-2 h-2 bg-teal-400"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="w-2 h-2 bg-teal-400"
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*                               EXPORT ALL NODES                             */
 /* -------------------------------------------------------------------------- */
 
@@ -293,4 +437,6 @@ export {
   ImageNode,
   PdfNode,
   SummaryNode,
+  ChatResponseNode,
+  DocumentNode,
 };

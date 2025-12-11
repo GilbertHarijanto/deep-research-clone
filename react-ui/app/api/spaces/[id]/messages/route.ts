@@ -13,7 +13,8 @@ function log(...args: any[]) {
 
 type ScopeInput = {
   nodeId: string;
-  nodeType: "topic" | "idea" | "query" | "evidence" | "report";
+  nodeType: "topic" | "idea" | "query" | "evidence" | "report" | "image";
+  imageUrl?: string;
 };
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
